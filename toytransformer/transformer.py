@@ -1,5 +1,6 @@
+# solutions from ARENA2.0
 # %%
-
+## TAKEN FROM ARENA2.0 SOLUTIONS
 import os
 
 os.environ["ACCELERATE_DISABLE_RICH"] = "1"
@@ -35,8 +36,6 @@ exercises_dir = Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/exercises").res
 section_dir = (exercises_dir / "part1_transformer_from_scratch").resolve()
 if str(exercises_dir) not in sys.path:
     sys.path.append(str(exercises_dir))
-
-from plotly_utils import imshow
 
 # import part1_transformer_from_scratch.solutions as solutions
 
@@ -310,6 +309,21 @@ class TransformerBlock(nn.Module):
         resid_mid = self.attn(self.ln1(resid_pre)) + resid_pre
         resid_post = self.mlp(self.ln2(resid_mid)) + resid_mid
         return resid_post
+
+
+class TransformerBlock_noMLP(nn.Module):
+    def __init__(self, cfg: Config):
+        super().__init__()
+        self.cfg = cfg
+        self.ln1 = LayerNorm(cfg)
+        self.attn = Attention(cfg)
+        self.ln2 = LayerNorm(cfg)
+
+    def forward(
+        self, resid_pre: Float[Tensor, "batch position d_model"]
+    ) -> Float[Tensor, "batch position d_model"]:
+        resid_mid = self.attn(self.ln1(resid_pre)) + resid_pre
+        return resid_mid
 
 
 # %%

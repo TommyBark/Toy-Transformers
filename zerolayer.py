@@ -13,7 +13,7 @@ from pytorch_lightning.loggers import WandbLogger
 import wandb
 from typing import Tuple, List, Optional, Dict
 from jaxtyping import Float, Int
-from arena_solutions import Embed, PosEmbed, Unembed, LitTransformer
+from toytransformer.transformer import Embed, PosEmbed, Unembed, LitTransformer
 
 os.environ["ACCELERATE_DISABLE_RICH"] = "1"
 # os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
@@ -99,7 +99,7 @@ data_loader = DataLoader(
 # %%
 # litmodel_zero = LitTransformer(args, model_zero, data_loader)
 litmodel_zero = LitTransformer.load_from_checkpoint(
-    "/home/ubuntu/model_zero_e1.ckpt",
+    "model_zero_e1.ckpt",
     args=args,
     model=model_zero,
     data_loader=data_loader,
