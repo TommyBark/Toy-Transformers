@@ -28,6 +28,14 @@ import pytorch_lightning as pl
 from tokenizers import ByteLevelBPETokenizer
 
 
+device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+if device == "cuda":
+    torch.backends.cudnn.benchmark = True
+    precision = 16
+else:
+    precision = "32-true"
+
+
 @dataclass
 class Config:
     d_model: int = 64
@@ -122,7 +130,9 @@ data_loader = DataLoader(
 # %%
 lit_model = LitTransformer(args, model, data_loader)
 trainer = pl.Trainer(
-    max_epochs=args.max_epochs, log_every_n_steps=args.log_every_n_steps
+    max_epochs=args.max_epochs,
+    log_every_n_steps=args.log_every_n_steps,
+    precision=precision,
 )
 trainer.fit(model=lit_model, train_dataloaders=lit_model.data_loader)
 # %%
