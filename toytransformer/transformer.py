@@ -29,7 +29,8 @@ from pytorch_lightning.loggers import WandbLogger
 import wandb
 from pathlib import Path
 import webbrowser
-
+from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
+allow_ops_in_compiled_graph()
 # Make sure exercises are in the path
 chapter = r"chapter1_transformers"
 exercises_dir = Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/exercises").resolve()
@@ -179,6 +180,8 @@ class Attention(nn.Module):
         nn.init.normal_(self.W_O, std=self.cfg.init_range)
         self.register_buffer("IGNORE", t.tensor(-1e5, dtype=t.float32, device=device))
 
+        causal_mask = t.tril(t.ones((cfg.n_ctx, cfg.n_ctx)).bool())
+        self.register_buffer("mask", causal_mask)
     def forward(
         self, normalized_resid_pre: Float[Tensor, "batch posn d_model"]
     ) -> Float[Tensor, "batch posn d_model"]:
@@ -245,13 +248,20 @@ class Attention(nn.Module):
         Applies a causal mask to attention scores, and returns masked scores.
         """
         # Define a mask that is True for all positions we want to set probabilities to zero for
-        all_ones = t.ones(
-            attn_scores.size(-2), attn_scores.size(-1), device=attn_scores.device
+        # all_ones = t.ones(
+        #     attn_scores.size(-2), attn_scores.size(-1), device=attn_scores.device
+        # )
+        # mask = t.triu(all_ones, diagonal=1).bool()
+        # # Apply the mask to attention scores, then return the masked scores
+        # attn_scores.masked_fill_(mask, self.IGNORE)
+        # return attn_scores
+        query_ctx_length = attn_scores.size(-2)
+        key_ctx_length = attn_scores.size(-1)
+        return t.where(
+            self.mask[:query_ctx_length,:key_ctx_length,],
+            attn_scores,
+            self.IGNORE,
         )
-        mask = t.triu(all_ones, diagonal=1).bool()
-        # Apply the mask to attention scores, then return the masked scores
-        attn_scores.masked_fill_(mask, self.IGNORE)
-        return attn_scores
 
 
 # %%
