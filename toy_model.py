@@ -34,6 +34,21 @@ allow_ops_in_compiled_graph()
 
 TOKENIZED_DATASET_PATH = "tokenized_dataset.hf"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+n_gpus = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
+n_cpus:int = os.cpu_count()
+
+if n_gpus > 1:
+    additional_training_kwargs = {"accelerator":"gpu",
+    "devices": n_gpus,
+    "strategy":"ddp_find_unused_parameters_true"}
+else:
+    additional_training_kwargs = {
+    }
+
+if n_cpus > 8:
+    num_workers = n_cpus - 2
+else:
+    num_workers = 0 
 
 if device ==  torch.device("cuda"):
     torch.backends.cudnn.benchmark = True
@@ -44,7 +59,7 @@ if device ==  torch.device("cuda"):
     torch._dynamo.config.verbose=True
     torch.set_float32_matmul_precision('medium')
     precision = 16
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
     gc.collect()
 else:
     precision = "32-true"
@@ -111,7 +126,7 @@ class ToyTransformer(nn.Module):
 dataset = datasets.load_dataset("roneneldan/TinyStories", split="train")
 # %%
 model = ToyTransformer(cfg)
-model = model.to(device)
+#model = model.to(device)
 compiled_model = torch.compile(model)
 # tokenizer = ByteLevelBPETokenizer(vocab = "tiny_stories_10k_tokenizer-vocab.json", merges = "tiny_stories_10k_tokenizer-merges.txt")
 # tokenizer = AutoTokenizer.from_pretrained("./tiny_tokenizer/")
@@ -132,25 +147,28 @@ else:
         max_length=model.cfg.n_ctx,
         column_name="text",
         add_bos_token=True,
-        num_proc=4,
+        num_proc=num_workers,
     )
     tokenized_dataset.save_to_disk(TOKENIZED_DATASET_PATH)
+
 
 # %%
 data_loader = DataLoader(
     tokenized_dataset,
     batch_size=args.batch_size,
     shuffle=True,
-    num_workers=0,
+    num_workers=num_workers,
     pin_memory=True,
 )
 
 # %%
-lit_model = LitTransformer(args, compiled_model, data_loader)
+# lit_model = LitTransformer(args, compiled_model, data_loader)
+lit_model = LitTransformer.load_from_checkpoint("/root/Toy-Transformers/lightning_logs/version_4/checkpoints/epoch=2-step=9774.ckpt", args=args, model = compiled_model, data_loader=data_loader)
 trainer = pl.Trainer(
     max_epochs=args.max_epochs,
     log_every_n_steps=args.log_every_n_steps,
     precision="32-true",
+**additional_training_kwargs
 )
 trainer.fit(model=lit_model, train_dataloaders=lit_model.data_loader)
 # %%
