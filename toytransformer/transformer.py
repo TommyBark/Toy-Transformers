@@ -2,10 +2,6 @@
 # %%
 ## TAKEN FROM ARENA2.0 SOLUTIONS
 import os
-
-os.environ["ACCELERATE_DISABLE_RICH"] = "1"
-# os.environ['CUDA_LAUNCH_BLOCKING'] = "1"
-import sys
 import einops
 from dataclasses import dataclass
 from transformer_lens import HookedTransformer
@@ -14,31 +10,19 @@ import torch as t
 from torch import Tensor
 import torch.nn as nn
 import numpy as np
-import math
 from tqdm.notebook import tqdm
 from typing import Tuple, List, Optional, Dict
 from jaxtyping import Float, Int
 from transformers.models.gpt2.tokenization_gpt2_fast import GPT2TokenizerFast
-from collections import defaultdict
+from collections import defaultdict, OrderedDict
 from rich.table import Table
 from rich import print as rprint
-import datasets
 from torch.utils.data import DataLoader
 import pytorch_lightning as pl
-from pytorch_lightning.loggers import WandbLogger
-import wandb
-from pathlib import Path
-import webbrowser
 from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
-allow_ops_in_compiled_graph()
-# Make sure exercises are in the path
-chapter = r"chapter1_transformers"
-exercises_dir = Path(f"{os.getcwd().split(chapter)[0]}/{chapter}/exercises").resolve()
-section_dir = (exercises_dir / "part1_transformer_from_scratch").resolve()
-if str(exercises_dir) not in sys.path:
-    sys.path.append(str(exercises_dir))
 
-# import part1_transformer_from_scratch.solutions as solutions
+os.environ["ACCELERATE_DISABLE_RICH"] = "1"
+allow_ops_in_compiled_graph()
 
 device = t.device("cuda" if t.cuda.is_available() else "cpu")
 
@@ -182,6 +166,7 @@ class Attention(nn.Module):
 
         causal_mask = t.tril(t.ones((cfg.n_ctx, cfg.n_ctx)).bool())
         self.register_buffer("mask", causal_mask)
+
     def forward(
         self, normalized_resid_pre: Float[Tensor, "batch posn d_model"]
     ) -> Float[Tensor, "batch posn d_model"]:
@@ -258,7 +243,10 @@ class Attention(nn.Module):
         query_ctx_length = attn_scores.size(-2)
         key_ctx_length = attn_scores.size(-1)
         return t.where(
-            self.mask[:query_ctx_length,:key_ctx_length,],
+            self.mask[
+                :query_ctx_length,
+                :key_ctx_length,
+            ],
             attn_scores,
             self.IGNORE,
         )
@@ -423,14 +411,16 @@ class LitTransformer(pl.LightningModule):
     def __init__(
         self,
         args: TransformerTrainingArgs,
-        model: DemoTransformer,
-        data_loader: DataLoader,
+        model: DemoTransformer = None,
+        data_loader: DataLoader = None,
     ):
         super().__init__()
         self.model = model
-        self.cfg = model.cfg
+        if model is not None:
+            self.cfg = model.cfg
         self.args = args
         self.data_loader = data_loader
+        self.save_hyperparameters()
 
     def forward(
         self, tokens: Int[Tensor, "batch position"]
