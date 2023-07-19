@@ -16,50 +16,46 @@ from toytransformer.transformer import (
     LitTransformer,
 )
 from transformer_lens.utils import tokenize_and_concatenate
-from toytransformer.utils import get_n_params
 from torch.utils.data import DataLoader
 from dataclasses import dataclass
-from transformers import (
-    AutoModelForCausalLM,
-    AutoTokenizer,
-    GenerationConfig,
-    GPT2TokenizerFast,
-)
+from transformers import GPT2TokenizerFast
 from tqdm import tqdm
 import pytorch_lightning as pl
-from tokenizers import ByteLevelBPETokenizer
-from einops._torch_specific import allow_ops_in_compiled_graph  # requires einops>=0.6.1
+from einops._torch_specific import allow_ops_in_compiled_graph
+
 allow_ops_in_compiled_graph()
 
 
 TOKENIZED_DATASET_PATH = "tokenized_dataset.hf"
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 n_gpus = len([torch.cuda.device(i) for i in range(torch.cuda.device_count())])
-n_cpus:int = os.cpu_count()
-
+n_cpus: int = os.cpu_count()
+checkpoint_path = ".\checkpoints\epoch=4-step=9774.ckpt"
 if n_gpus > 1:
-    additional_training_kwargs = {"accelerator":"gpu",
-    "devices": n_gpus,
-    "strategy":"ddp_find_unused_parameters_true"}
-else:
     additional_training_kwargs = {
+        "accelerator": "gpu",
+        "devices": n_gpus,
+        "strategy": "ddp_find_unused_parameters_true",
     }
+else:
+    additional_training_kwargs = {}
 
-if n_cpus > 8:
+if n_cpus > 16:
     num_workers = n_cpus - 2
 else:
-    num_workers = 0 
+    num_workers = 1
 
-if device ==  torch.device("cuda"):
+if device == torch.device("cuda"):
     torch.backends.cudnn.benchmark = True
     torch.backends.cuda.enable_flash_sdp(False)
     import torch._dynamo
+
     torch._dynamo.config.suppress_errors = True
     torch._dynamo.reset()
-    torch._dynamo.config.verbose=True
-    torch.set_float32_matmul_precision('medium')
+    torch._dynamo.config.verbose = True
+    torch.set_float32_matmul_precision("medium")
     precision = 16
-    #torch.cuda.empty_cache()
+    # torch.cuda.empty_cache()
     gc.collect()
 else:
     precision = "32-true"
@@ -80,7 +76,7 @@ class Config:
 
 @dataclass
 class TransformerTrainingArgs:
-    batch_size = 4096*2
+    batch_size = 4096 * 2
     max_epochs = 3
     max_steps = 1000
     log_every = 10
@@ -126,8 +122,9 @@ class ToyTransformer(nn.Module):
 dataset = datasets.load_dataset("roneneldan/TinyStories", split="train")
 # %%
 model = ToyTransformer(cfg)
-#model = model.to(device)
-compiled_model = torch.compile(model)
+# model = model.to(device)
+# compiled_model = torch.compile(model)
+compiled_model = model
 # tokenizer = ByteLevelBPETokenizer(vocab = "tiny_stories_10k_tokenizer-vocab.json", merges = "tiny_stories_10k_tokenizer-merges.txt")
 # tokenizer = AutoTokenizer.from_pretrained("./tiny_tokenizer/")
 # tokenizer_neo = AutoTokenizer.from_pretrained("EleutherAI/gpt-neo-125M")
@@ -162,13 +159,16 @@ data_loader = DataLoader(
 )
 
 # %%
-# lit_model = LitTransformer(args, compiled_model, data_loader)
-lit_model = LitTransformer.load_from_checkpoint("/root/Toy-Transformers/lightning_logs/version_4/checkpoints/epoch=2-step=9774.ckpt", args=args, model = compiled_model, data_loader=data_loader)
+lit_model = LitTransformer(args, compiled_model, data_loader)
+
+# %%
 trainer = pl.Trainer(
     max_epochs=args.max_epochs,
     log_every_n_steps=args.log_every_n_steps,
-    precision="32-true",
-**additional_training_kwargs
+    precision=precision,
+    **additional_training_kwargs
 )
-trainer.fit(model=lit_model, train_dataloaders=lit_model.data_loader)
+trainer.fit(
+    model=lit_model, train_dataloaders=lit_model.data_loader, ckpt_path=checkpoint_path
+)
 # %%

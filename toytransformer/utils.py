@@ -1,6 +1,8 @@
 import nltk
 import datasets
 from typing import List, Union
+import torch
+from collections import OrderedDict
 
 
 def word_count(string: str) -> int:
@@ -118,3 +120,26 @@ def get_n_params(model) -> int:
             nn = nn * s
         pp += nn
     return pp
+
+
+import io
+
+
+def fix_compiled_model_ckpt(ckpt_path: str, device: torch.device) -> dict:
+    str_to_remove = "._orig_mod"
+    checkpoint = torch.load(ckpt_path, map_location=device)
+
+    state_dict = checkpoint["state_dict"]
+
+    new_state_dict = OrderedDict()
+    for k_old in state_dict.keys():
+        k_new = k_old.replace(str_to_remove, "")
+        new_state_dict[k_new] = state_dict[k_old]
+    # return checkpoint["state_dict"], new_state_dict
+    checkpoint["state_dict"] = new_state_dict
+    torch.save(checkpoint, ckpt_path.replace(".ckpt", "_fixed.ckpt"))
+    # return checkpoint
+    checkpoint_buffer = io.BytesIO()
+    checkpoint_buffer.seek(0)
+    torch.save(checkpoint, checkpoint_buffer)
+    return checkpoint_buffer
