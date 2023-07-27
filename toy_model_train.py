@@ -2,7 +2,7 @@
 import os
 import gc
 from jaxtyping import Float, Int
-from typing import List, Optional
+from typing import List, Optional, Dict
 from torch import Tensor
 import torch.nn as nn
 import torch
@@ -13,7 +13,7 @@ from toytransformer.transformer import (
     PosEmbed,
     Unembed,
     LayerNorm,
-    LitTransformer,
+    get_log_probs,
 )
 from transformer_lens.utils import tokenize_and_concatenate
 from torch.utils.data import DataLoader
@@ -93,9 +93,14 @@ cfg = Config()
 
 
 # %%
-class ToyTransformer(nn.Module):
-    def __init__(self, cfg: Config):
+class ToyTransformer(pl.LightningModule):
+    def __init__(
+        self,
+        cfg: Config,
+        args: TransformerTrainingArgs,
+    ):
         super().__init__()
+        self.args = args
         self.cfg = cfg
         self.embed = Embed(cfg)
         self.pos_embed = PosEmbed(cfg)
@@ -104,6 +109,7 @@ class ToyTransformer(nn.Module):
         )
         self.ln_final = LayerNorm(cfg)
         self.unembed = Unembed(cfg)
+        self.save_hyperparameters()
 
     def forward(
         self, tokens: Int[Tensor, "batch position"]
@@ -115,13 +121,37 @@ class ToyTransformer(nn.Module):
         x = self.unembed(x)
         return x
 
+    def training_step(
+        self, batch: Dict[str, Tensor], batch_idx: int
+    ) -> Float[Tensor, ""]:
+        """
+        Here you compute and return the training loss and some additional metrics for e.g.
+        the progress bar or logger.
+        """
+        tokens = batch["tokens"].to(device)
+        logits = self(tokens)
+        loss = -get_log_probs(logits, tokens).mean()
+        self.log("train_loss", loss)
+        return loss
 
+    def configure_optimizers(self):
+        """
+        Choose what optimizers and learning-rate schedulers to use in your optimization.
+        """
+        optimizer = torch.optim.AdamW(
+            self.parameters(),
+            lr=self.args.lr,
+            weight_decay=self.args.weight_decay,
+        )
+        return optimizer
+
+
+# %%
 # dataset = datasets.load_dataset("NeelNanda/pile-10k", split="train").remove_columns(
 #     "meta"
 # )
 dataset = datasets.load_dataset("roneneldan/TinyStories", split="train")
-# %%
-model = ToyTransformer(cfg)
+model = ToyTransformer(cfg, args)
 # model = model.to(device)
 # compiled_model = torch.compile(model)
 compiled_model = model
@@ -159,7 +189,6 @@ data_loader = DataLoader(
 )
 
 # %%
-lit_model = LitTransformer(args, compiled_model, data_loader)
 
 # %%
 trainer = pl.Trainer(
@@ -168,7 +197,5 @@ trainer = pl.Trainer(
     precision=precision,
     **additional_training_kwargs
 )
-trainer.fit(
-    model=lit_model, train_dataloaders=lit_model.data_loader, ckpt_path=checkpoint_path
-)
+trainer.fit(model=model, train_dataloaders=data_loader)  # , ckpt_path=checkpoint_path)
 # %%
